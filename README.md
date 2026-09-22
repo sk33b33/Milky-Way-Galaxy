@@ -24,3 +24,7 @@ The galaxy is built from a logarithmic spiral, `R = A · e^(B·θ)`, with a Gaus
 Galactic radius: 50,000 ly · Core radius: 10,000 ly · Disk thickness: 3,000 ly.
 
 Everything — the dust field, the curated clickable star systems, and each local system's planets — is generated at load time from a seeded PRNG, so the layout is stable across reloads.
+
+## Deployment
+
+Deployed on [Vercel](https://vercel.com/) as a zero-config static site. The project is connected to this repository's `main` branch, so every push here triggers an automatic redeploy.
