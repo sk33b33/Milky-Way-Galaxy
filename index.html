@@ -103,8 +103,12 @@
     display:flex;align-items:center;justify-content:center;}
   .info-close:hover{color:var(--accent);border-color:var(--border-strong);}
   .info-eyebrow{font-size:9px;letter-spacing:.16em;color:var(--text-faint);text-transform:uppercase;margin-bottom:6px;}
+  .info-badges{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;padding-right:22px;}
+  .info-badges .info-eyebrow{margin-bottom:0;}
+  .rarity-pill{font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;padding:2px 8px;border-radius:999px;border:1px solid currentColor;white-space:nowrap;}
   .info-name{font-family:var(--font-display);font-size:16px;color:var(--text);letter-spacing:.03em;line-height:1.3;
-    margin:0 0 14px 0;padding-right:22px;text-wrap:balance;}
+    margin:0 0 6px 0;padding-right:22px;text-wrap:balance;}
+  .info-flavor{font-size:10.5px;color:var(--text-dim);font-style:italic;line-height:1.5;margin:0 0 14px 0;}
   .info-row{display:flex;justify-content:space-between;align-items:baseline;font-size:11px;padding:7px 0;
     border-top:1px solid rgba(93,238,255,.12);color:var(--text-dim);}
   .info-row .v{color:var(--text);font-variant-numeric:tabular-nums;letter-spacing:.02em;}
@@ -133,6 +137,12 @@
     font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;white-space:nowrap;}
   .return-btn:hover{background:var(--accent-soft);border-color:var(--border-strong);}
 
+  .planet-labels{position:absolute;inset:0;pointer-events:none;z-index:5;}
+  .planet-label{position:absolute;top:0;left:0;transform:translate(-50%,-150%);font-size:9px;letter-spacing:.08em;
+    color:var(--text-dim);background:var(--panel);border:1px solid var(--border);padding:2px 7px;
+    white-space:nowrap;text-transform:uppercase;display:none;}
+  .planet-label b{color:var(--accent);font-weight:600;margin-right:4px;}
+
   @media (max-width:640px){
     .info-panel{left:16px;right:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));top:auto;width:auto;
       transform:translateY(140%);}
@@ -154,6 +164,7 @@
 
 <canvas id="scene" tabindex="0" aria-label="Interactive 3D galactic map"></canvas>
 <div id="warpFlash" aria-hidden="true"></div>
+<div class="planet-labels" id="planetLabels"></div>
 
 <div id="loading">
   <div class="loading-brand">Stellar Cartographer</div>
@@ -198,11 +209,16 @@
 
   <div class="info-panel panel" data-hidden="true" id="infoPanel">
     <button class="info-close" id="infoClose" type="button" aria-label="Deselect star">&times;</button>
-    <div class="info-eyebrow" id="infoEyebrow">Target Locked</div>
+    <div class="info-badges">
+      <span class="info-eyebrow" id="infoEyebrow">Target Locked</span>
+      <span class="rarity-pill" id="infoRarity">Common</span>
+    </div>
     <div class="info-name" id="infoName">&mdash;</div>
+    <div class="info-flavor" id="infoFlavor">&mdash;</div>
     <div class="info-row"><span>Spectral Class</span><span class="v" id="infoClass">&mdash;</span></div>
     <div class="info-row"><span>Distance from Sol</span><span class="v" id="infoDistance">&mdash;</span></div>
     <div class="info-row"><span>Spiral Arm</span><span class="v" id="infoArm">&mdash;</span></div>
+    <div class="info-row"><span>Orbital Bodies</span><span class="v" id="infoBodies">&mdash;</span></div>
     <div class="info-eyebrow" style="margin-top:12px;">Resource Potential</div>
     <div class="resource-tags" id="infoResources"></div>
     <div class="richness-label"><span>Survey Richness</span><span id="infoRichnessPct">&mdash;</span></div>
@@ -355,6 +371,31 @@
   var systems = [];   // clickable systems: {id,name,armName,armCode,spectral,position(Vector3 scene units),distanceLY,resources,richness,sprite}
   var armSectorCounters = {};
 
+  function rarityForRichness(r){
+    if (r >= 85) return { label:'Exceptional', color:'#ffb454' };
+    if (r >= 65) return { label:'Rare', color:'#b48bff' };
+    if (r >= 40) return { label:'Uncommon', color:'#5ff0ff' };
+    return { label:'Common', color:'#82a0b4' };
+  }
+  var FLAVOR_TRAITS = {
+    O: ['radiates intense ultraviolet flux','burns through fuel at a ferocious rate','ranks among the most luminous stars in this sector'],
+    B: ['shows strong stellar wind activity','has cleared a wide debris-free zone nearby','casts a hard blue-white glow across nearby bodies'],
+    A: ['exhibits a sharp, stable spectral signature','shows minimal flare activity','has an unusually clean hydrogen envelope'],
+    F: ['sits comfortably on the main sequence','shows mild variability across decades','has a well-mixed convective layer'],
+    G: ['closely resembles Sol in output and stability','supports a wide habitable band','shows a gentle multi-year activity cycle'],
+    K: ['burns slow and steady, with a long stable lifespan','carries a deep orange hue at this distance','shows low flare activity'],
+    M: ['is faint but exceptionally long-lived','flares unpredictably despite its size','dims and brightens on an irregular cycle']
+  };
+  function flavorLine(sys){
+    var rng = mulberry32((sys.seed ^ 0x2545f491) >>> 0);
+    var pool = FLAVOR_TRAITS[sys.spectral.type] || FLAVOR_TRAITS.G;
+    return 'This ' + sys.spectral.type + '-type star ' + pick(rng, pool) + '.';
+  }
+  function rollPlanetCount(seed){
+    var rng = mulberry32(seed);
+    return 2 + Math.floor(rng()*3);
+  }
+
   function armPoint(rng, arm){
     var baseRadiusLY = startRadiusLY + (GALAXY.radiusLY - startRadiusLY) * Math.sqrt(rng());
     var theta = thetaAtRadius(baseRadiusLY);
@@ -487,6 +528,9 @@
       spectral: sunSpectral, position: sunPos, distanceLY: 0,
       resources: ['Hydrogen','Silicates','Heavy Metals'], richness: 62, sprite: sunSprite, seed: hashStr('Sol')
     };
+    sunSystem.planetCount = rollPlanetCount(sunSystem.seed);
+    sunSystem.rarity = rarityForRichness(sunSystem.richness);
+    sunSystem.flavor = flavorLine(sunSystem);
     sunSprite.userData.system = sunSystem;
     systems.push(sunSystem);
 
@@ -519,6 +563,9 @@
           resources: pickResources(rng), richness: Math.round(20+rng()*78),
           sprite: sprite, seed: hashStr(name)
         };
+        sys.planetCount = rollPlanetCount(sys.seed);
+        sys.rarity = rarityForRichness(sys.richness);
+        sys.flavor = flavorLine(sys);
         sprite.userData.system = sys;
         systems.push(sys);
       }
@@ -734,6 +781,10 @@
     document.getElementById('infoClass').textContent = sys.spectral.type + '-Type';
     document.getElementById('infoDistance').textContent = sys.isSol ? '0 ly (home)' : fmtLY(sys.distanceLY);
     document.getElementById('infoArm').textContent = sys.armName;
+    document.getElementById('infoBodies').textContent = sys.planetCount + (sys.planetCount===1?' body':' bodies');
+    document.getElementById('infoRarity').textContent = sys.rarity.label;
+    document.getElementById('infoRarity').style.color = sys.rarity.color;
+    document.getElementById('infoFlavor').textContent = sys.flavor;
     document.getElementById('infoRichnessPct').textContent = sys.richness + '%';
     document.getElementById('infoRichnessFill').style.width = sys.richness + '%';
     var tagsEl = document.getElementById('infoResources');
@@ -778,10 +829,66 @@
   /* ---------------------------------------------------------------------
    * Procedural local-system scenes, built once per system and cached
    * ------------------------------------------------------------------- */
-  var PLANET_PALETTES = [
-    [0x8a6a52,0xb08a5e], [0x5a86a8,0x8fc4d8], [0xb3532e,0xe08856],
-    [0x6b7a8f,0xa9b7c6], [0xc9a25a,0xf0d18c], [0x4f7d5c,0x86bf95], [0x9c6bcf,0xc9a6f2]
+  function toRoman(n){
+    var vals=[10,9,5,4,1], syms=['X','IX','V','IV','I'], out='';
+    for (var i=0;i<vals.length;i++){ while(n>=vals[i]){ out+=syms[i]; n-=vals[i]; } }
+    return out || 'I';
+  }
+
+  var PLANET_TYPES = [
+    { style:'rocky',    base:0x8a6a52, alt:0xb08a5e, label:'Rocky' },
+    { style:'ice',      base:0x8fc4d8, alt:0xeaf7fb, label:'Ice World' },
+    { style:'rocky',    base:0xb3532e, alt:0xe08856, label:'Rocky' },
+    { style:'rocky',    base:0x6b7a8f, alt:0xa9b7c6, label:'Rocky' },
+    { style:'gasGiant', base:0xc9a25a, alt:0xf0d18c, label:'Gas Giant' },
+    { style:'gasGiant', base:0x4f7d5c, alt:0x86bf95, label:'Gas Giant' },
+    { style:'gasGiant', base:0x9c6bcf, alt:0xc9a6f2, label:'Gas Giant' }
   ];
+
+  /* Procedural planet surface: horizontal bands for gas giants, mottled blobs otherwise. */
+  function makePlanetTexture(seed, baseHex, altHex, banded){
+    var w=256, h=128, c=document.createElement('canvas');
+    c.width=w; c.height=h;
+    var ctx = c.getContext('2d');
+    var rng = mulberry32(seed);
+    var base = new THREE.Color(baseHex), alt = new THREE.Color(altHex);
+    ctx.fillStyle = '#'+base.getHexString();
+    ctx.fillRect(0,0,w,h);
+    function rgba(col, a){ return 'rgba('+Math.round(col.r*255)+','+Math.round(col.g*255)+','+Math.round(col.b*255)+','+a+')'; }
+    if (banded){
+      var bands = 5+Math.floor(rng()*5);
+      for (var i=0;i<bands;i++){
+        var y = (i/bands)*h, bh = (h/bands)*(0.5+rng()*0.9);
+        ctx.fillStyle = rgba(base.clone().lerp(alt, rng()), 0.5+rng()*0.4);
+        ctx.fillRect(0, y, w, bh);
+      }
+    } else {
+      var blobs = 40+Math.floor(rng()*40);
+      for (var j=0;j<blobs;j++){
+        var bx=rng()*w, by=rng()*h, br=4+rng()*18;
+        ctx.fillStyle = rgba(base.clone().lerp(alt, rng()), 0.25+rng()*0.35);
+        ctx.beginPath();
+        ctx.ellipse(bx,by,br,br*(0.6+rng()*0.5),rng()*Math.PI,0,Math.PI*2);
+        ctx.fill();
+      }
+    }
+    var tex = new THREE.CanvasTexture(c);
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  var ATMO_VERT = "varying vec3 vNormal; varying vec3 vViewPos;\nvoid main(){ vNormal = normalize(normalMatrix*normal); vec4 mv = modelViewMatrix*vec4(position,1.0); vViewPos = -mv.xyz; gl_Position = projectionMatrix*mv; }";
+  var ATMO_FRAG = "uniform vec3 uColor;\nvarying vec3 vNormal; varying vec3 vViewPos;\nvoid main(){ float rim = 1.0 - max(dot(normalize(vNormal), normalize(vViewPos)), 0.0); float glow = pow(rim, 2.2); gl_FragColor = vec4(uColor, glow*0.8); }";
+
+  function makeAtmosphere(radius, colorHex){
+    var geo = new THREE.SphereGeometry(radius*1.22, 24, 18);
+    var mat = new THREE.ShaderMaterial({
+      uniforms: { uColor: { value: new THREE.Color(colorHex) } },
+      vertexShader: ATMO_VERT, fragmentShader: ATMO_FRAG,
+      transparent:true, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.BackSide
+    });
+    return new THREE.Mesh(geo, mat);
+  }
 
   function buildSystemScene(sys){
     if (sys._group) return sys._group;
@@ -802,14 +909,16 @@
     g.add(starLight);
     g.add(new THREE.AmbientLight(0x223244, 0.9));
 
-    var planetCount = 2 + Math.floor(rng()*3); // 2..4
+    var planetCount = sys.planetCount;
     var orbitR = starRadius + 2.4;
+    var orbitRadii = [];
     g.userData.planets = [];
     for (var i=0;i<planetCount;i++){
       orbitR += 1.9 + rng()*1.4;
-      var palette = pick(rng, PLANET_PALETTES);
-      var pColor = rng() > 0.5 ? palette[0] : palette[1];
+      orbitRadii.push(orbitR);
+      var type = pick(rng, PLANET_TYPES);
       var pRadius = 0.26 + rng()*0.5;
+      var planetSeed = (sys.seed ^ ((i+1)*2654435761)) >>> 0;
 
       var orbitPts = [];
       for (var a=0; a<=64; a++){
@@ -821,26 +930,69 @@
       g.add(new THREE.LineLoop(orbitGeo, orbitMat));
 
       var planetMesh = new THREE.Mesh(
-        new THREE.SphereGeometry(pRadius, 24, 18),
-        new THREE.MeshStandardMaterial({ color:pColor, roughness:0.75, metalness:0.05 })
+        new THREE.SphereGeometry(pRadius, 28, 20),
+        new THREE.MeshStandardMaterial({
+          map: makePlanetTexture(planetSeed, type.base, type.alt, type.style==='gasGiant'),
+          roughness: type.style==='gasGiant' ? 0.9 : 0.72, metalness:0.05
+        })
       );
       var startAngle = rng()*Math.PI*2;
       planetMesh.position.set(Math.cos(startAngle)*orbitR, 0, Math.sin(startAngle)*orbitR);
       g.add(planetMesh);
 
-      if (rng() < 0.3){
-        var ringGeo = new THREE.RingGeometry(pRadius*1.5, pRadius*2.1, 32);
-        var ringMat = new THREE.MeshBasicMaterial({ color:pColor, side:THREE.DoubleSide, transparent:true, opacity:0.35 });
+      if (rng() < 0.6){
+        var atmoColor = new THREE.Color(type.alt).lerp(new THREE.Color(0xffffff), 0.25);
+        planetMesh.add(makeAtmosphere(pRadius, atmoColor.getHex()));
+      }
+
+      if (type.style === 'gasGiant' && rng() < 0.4){
+        var ringGeo = new THREE.RingGeometry(pRadius*1.5, pRadius*2.2, 40);
+        var ringMat = new THREE.MeshBasicMaterial({ color:type.base, side:THREE.DoubleSide, transparent:true, opacity:0.35 });
         var ring = new THREE.Mesh(ringGeo, ringMat);
         ring.rotation.x = Math.PI/2 + 0.3;
         planetMesh.add(ring);
       }
 
+      var moons = [];
+      if (pRadius > 0.45 && rng() < 0.55){
+        var moonCount = 1 + (rng() < 0.35 ? 1 : 0);
+        for (var mi=0; mi<moonCount; mi++){
+          var moonMesh = new THREE.Mesh(
+            new THREE.SphereGeometry(0.08+rng()*0.08, 12, 10),
+            new THREE.MeshStandardMaterial({ color:0xaab0b8, roughness:0.9 })
+          );
+          g.add(moonMesh);
+          moons.push({ mesh:moonMesh, orbitR: pRadius*1.8 + mi*0.5 + rng()*0.3, angle: rng()*Math.PI*2, speed: 1.2+rng()*0.8 });
+        }
+      }
+
       g.userData.planets.push({
-        mesh: planetMesh, orbitR: orbitR, angle: startAngle,
-        speed: (0.18 + rng()*0.22) / Math.sqrt(orbitR)
+        mesh: planetMesh, orbitR: orbitR, angle: startAngle, radius: pRadius,
+        speed: (0.18 + rng()*0.22) / Math.sqrt(orbitR),
+        spin: 0.15 + rng()*0.5,
+        typeLabel: type.label, moons: moons
       });
     }
+
+    if (orbitRadii.length >= 2 && rng() < 0.5){
+      var gapIdx = Math.floor(rng()*(orbitRadii.length-1));
+      var beltInner = orbitRadii[gapIdx], beltOuter = orbitRadii[gapIdx+1];
+      var beltR = (beltInner+beltOuter)/2;
+      var beltCount = 260;
+      var beltPos = new Float32Array(beltCount*3);
+      for (var bi=0; bi<beltCount; bi++){
+        var bAngle = rng()*Math.PI*2;
+        var bR = beltR + (rng()-0.5)*(beltOuter-beltInner)*0.35;
+        beltPos[bi*3]   = Math.cos(bAngle)*bR;
+        beltPos[bi*3+1] = (rng()-0.5)*0.12;
+        beltPos[bi*3+2] = Math.sin(bAngle)*bR;
+      }
+      var beltGeo = new THREE.BufferGeometry();
+      beltGeo.setAttribute('position', new THREE.BufferAttribute(beltPos,3));
+      var beltMat = new THREE.PointsMaterial({ size:0.06, color:0x9c8a72, sizeAttenuation:true });
+      g.add(new THREE.Points(beltGeo, beltMat));
+    }
+
     g.userData.outerRadius = orbitR;
     sys._group = g;
     return g;
@@ -848,8 +1000,19 @@
 
   function populateSystemGroup(sys){
     systemGroup.clear();
-    systemGroup.add(buildSystemScene(sys));
-    systemViewRadius = clamp(buildSystemScene(sys).userData.outerRadius * 1.7, 9, 30);
+    var g = buildSystemScene(sys);
+    systemGroup.add(g);
+    systemViewRadius = clamp(g.userData.outerRadius * 1.7, 9, 30);
+
+    var labelsEl = document.getElementById('planetLabels');
+    labelsEl.innerHTML = '';
+    g.userData.planets.forEach(function(p, i){
+      var el = document.createElement('div');
+      el.className = 'planet-label';
+      el.innerHTML = '<b>' + toRoman(i+1) + '</b>' + p.typeLabel;
+      labelsEl.appendChild(el);
+      p.labelEl = el;
+    });
   }
 
   /* ---------------------------------------------------------------------
@@ -944,7 +1107,7 @@
         jumpBtn.textContent = 'Initiate Hyperspace Jump';
         setStatus('System View', false);
         document.getElementById('systemBarName').textContent = sys.name;
-        document.getElementById('systemBarMeta').textContent = sys.spectral.type + '-Type · ' + sys.armName + (sys.isSol ? '' : ' · ' + fmtLY(sys.distanceLY));
+        document.getElementById('systemBarMeta').textContent = sys.spectral.type + '-Type · ' + sys.armName + (sys.isSol ? '' : ' · ' + fmtLY(sys.distanceLY)) + ' · ' + sys.planetCount + (sys.planetCount===1?' body':' bodies');
         systemBar.setAttribute('data-visible', 'true');
         infoPanel.setAttribute('data-hidden', 'true');
       });
@@ -1032,11 +1195,33 @@
       var s = 2.6 + Math.sin(performance.now()*0.004)*0.35;
       selectionRing.scale.set(s,s,1);
     }
+    document.getElementById('planetLabels').style.display = state.mode==='system' ? 'block' : 'none';
+
     if (state.mode === 'system' && systemGroup.children[0]){
       var planets = systemGroup.children[0].userData.planets || [];
+      var vw = window.innerWidth, vh = window.innerHeight;
+      var projected = new THREE.Vector3();
       planets.forEach(function(p){
         p.angle += dt * p.speed;
-        p.mesh.position.set(Math.cos(p.angle)*p.orbitR, 0, Math.sin(p.angle)*p.orbitR);
+        var px = Math.cos(p.angle)*p.orbitR, pz = Math.sin(p.angle)*p.orbitR;
+        p.mesh.position.set(px, 0, pz);
+        p.mesh.rotation.y += dt * p.spin;
+
+        p.moons.forEach(function(m){
+          m.angle += dt * m.speed;
+          m.mesh.position.set(px + Math.cos(m.angle)*m.orbitR, Math.sin(m.angle*0.6)*0.15, pz + Math.sin(m.angle)*m.orbitR);
+        });
+
+        if (p.labelEl){
+          projected.set(px, p.radius+0.5, pz).project(camera);
+          if (projected.z > -1 && projected.z < 1){
+            p.labelEl.style.display = 'block';
+            p.labelEl.style.left = ((projected.x*0.5+0.5)*vw) + 'px';
+            p.labelEl.style.top = ((-projected.y*0.5+0.5)*vh) + 'px';
+          } else {
+            p.labelEl.style.display = 'none';
+          }
+        }
       });
     }
 
