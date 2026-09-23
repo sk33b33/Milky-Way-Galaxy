@@ -1209,15 +1209,22 @@
 
     updateRig();
 
-    if (!reduceMotion && state.mode === 'galaxy' && !jumping){
-      galaxyGroup.rotation.y += dt * 0.006;
-    }
     if (selectionRing.visible){
       var s = 2.6 + Math.sin(performance.now()*0.004)*0.35;
       selectionRing.scale.set(s,s,1);
     }
     document.getElementById('planetLabels').style.display = state.mode==='system' ? 'block' : 'none';
-    document.getElementById('starLabels').style.display = state.mode==='galaxy' ? 'block' : 'none';
+
+    var starLabelsEl = document.getElementById('starLabels');
+    if (state.mode === 'galaxy'){
+      // Fade labels in as the camera zooms closer, so the wide view stays uncluttered.
+      var labelFarRad = 65, labelNearRad = 28;
+      var labelT = clamp((labelFarRad - rig.rad) / (labelFarRad - labelNearRad), 0, 1);
+      starLabelsEl.style.opacity = labelT;
+      starLabelsEl.style.display = labelT > 0.02 ? 'block' : 'none';
+    } else {
+      starLabelsEl.style.display = 'none';
+    }
 
     if (state.mode === 'galaxy' && !jumping){
       var starVw = window.innerWidth, starVh = window.innerHeight;
