@@ -143,6 +143,12 @@
     white-space:nowrap;text-transform:uppercase;display:none;}
   .planet-label b{color:var(--accent);font-weight:600;margin-right:4px;}
 
+  .star-labels{position:absolute;inset:0;pointer-events:none;z-index:4;}
+  .star-label{position:absolute;top:0;left:0;transform:translate(-50%,7px);font-size:8px;letter-spacing:.04em;
+    text-shadow:0 0 4px rgba(2,3,5,.95), 0 0 2px rgba(2,3,5,.95);white-space:nowrap;text-transform:uppercase;
+    display:none;pointer-events:none;}
+  .star-label.sol{font-weight:700;letter-spacing:.08em;}
+
   @media (max-width:640px){
     .info-panel{left:16px;right:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));top:auto;width:auto;
       transform:translateY(140%);}
@@ -164,6 +170,7 @@
 
 <canvas id="scene" tabindex="0" aria-label="Interactive 3D galactic map"></canvas>
 <div id="warpFlash" aria-hidden="true"></div>
+<div class="star-labels" id="starLabels"></div>
 <div class="planet-labels" id="planetLabels"></div>
 
 <div id="loading">
@@ -576,6 +583,20 @@
   GALAXY.arms.forEach(buildAmbientArm);
   buildHalo();
   buildSystems();
+
+  /* Small always-on labels marking every star you can actually click/visit,
+     so they read apart from the much larger decorative dust field. */
+  (function buildStarLabels(){
+    var container = document.getElementById('starLabels');
+    systems.forEach(function(sys){
+      var el = document.createElement('div');
+      el.className = 'star-label' + (sys.isSol ? ' sol' : '');
+      el.textContent = sys.isSol ? 'Sol' : sys.name;
+      el.style.color = '#' + sys.spectral.color.toString(16).padStart(6,'0');
+      container.appendChild(el);
+      sys.labelEl = el;
+    });
+  })();
 
   // Selection ring (reused sprite, positioned over whichever system is selected).
   var selectionRing = makeSystemSprite(0x5ff0ff);
@@ -1196,6 +1217,24 @@
       selectionRing.scale.set(s,s,1);
     }
     document.getElementById('planetLabels').style.display = state.mode==='system' ? 'block' : 'none';
+    document.getElementById('starLabels').style.display = state.mode==='galaxy' ? 'block' : 'none';
+
+    if (state.mode === 'galaxy' && !jumping){
+      var starVw = window.innerWidth, starVh = window.innerHeight;
+      var starWorldPos = new THREE.Vector3();
+      systems.forEach(function(sys){
+        if (!sys.labelEl) return;
+        sys.sprite.getWorldPosition(starWorldPos);
+        starWorldPos.project(camera);
+        if (starWorldPos.z > -1 && starWorldPos.z < 1){
+          sys.labelEl.style.display = 'block';
+          sys.labelEl.style.left = ((starWorldPos.x*0.5+0.5)*starVw) + 'px';
+          sys.labelEl.style.top = ((-starWorldPos.y*0.5+0.5)*starVh) + 'px';
+        } else {
+          sys.labelEl.style.display = 'none';
+        }
+      });
+    }
 
     if (state.mode === 'system' && systemGroup.children[0]){
       var planets = systemGroup.children[0].userData.planets || [];
