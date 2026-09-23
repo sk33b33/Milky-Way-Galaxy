@@ -254,7 +254,7 @@
       { name:"Orion Cygnus Spur",    code:"ORI", angleOffset:0.8,  color:"#fff176", density:0.3, isSolarHome:true }
     ]
   };
-  var UNIT = 1/1000; // 1 scene unit = 1000 light-years
+  var UNIT = 1/500; // 1 scene unit = 500 light-years (bigger galaxy: more room to zoom, less point overlap)
   var REVOLUTIONS = 2.1;
   var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -333,7 +333,7 @@
     var n = 2600, positions = new Float32Array(n*3);
     var rng = mulberry32(7);
     for (var i=0;i<n;i++){
-      var r = 260 + rng()*160;
+      var r = 420 + rng()*260;
       var theta = rng()*Math.PI*2, phi = Math.acos(rng()*2-1);
       positions[i*3]   = r*Math.sin(phi)*Math.cos(theta);
       positions[i*3+1] = r*Math.cos(phi);
@@ -416,7 +416,7 @@
   }
 
   function buildAmbientArm(arm){
-    var COUNT = Math.round(2200 * arm.density);
+    var COUNT = Math.round(1700 * arm.density);
     var positions = new Float32Array(COUNT*3);
     var colors = new Float32Array(COUNT*3);
     var rng = mulberry32(hashStr(arm.code + '-ambient'));
@@ -453,7 +453,7 @@
   }
 
   function buildCore(){
-    var COUNT = 1900;
+    var COUNT = 1500;
     var positions = new Float32Array(COUNT*3);
     var colors = new Float32Array(COUNT*3);
     var rng = mulberry32(hashStr('galactic-core'));
@@ -462,7 +462,9 @@
       var angle = rng()*Math.PI*2;
       var r = GALAXY.coreRadiusLY * Math.pow(rng(), 1.9);
       var x = Math.cos(angle)*r, z = Math.sin(angle)*r;
-      var y = gaussian(rng, GALAXY.thicknessLY*0.55);
+      // Taper the vertical spread with radius so the bulge reads as a round
+      // blob instead of a thin bright column at the densest, near-center point.
+      var y = gaussian(rng, GALAXY.thicknessLY*0.6 * (0.25 + 0.75*(r/GALAXY.coreRadiusLY)));
       positions[i*3]=x*UNIT; positions[i*3+1]=y*UNIT; positions[i*3+2]=z*UNIT;
       var c = (rng()>0.5?warm1:warm2).clone().multiplyScalar(0.75+rng()*0.5);
       colors[i*3]=c.r; colors[i*3+1]=c.g; colors[i*3+2]=c.b;
@@ -484,7 +486,7 @@
   }
 
   function buildHalo(){
-    var COUNT = 1100;
+    var COUNT = 850;
     var positions = new Float32Array(COUNT*3);
     var colors = new Float32Array(COUNT*3);
     var rng = mulberry32(hashStr('galactic-halo'));
@@ -609,13 +611,13 @@
    * Camera rig: spherical orbit + pan, damped toward target values
    * ------------------------------------------------------------------- */
   var rig = {
-    az: 0.6, pol: 0.92, rad: 92,
-    targetAz: 0.6, targetPol: 0.92, targetRad: 92,
-    minRad: 6, maxRad: 150,
+    az: 0.6, pol: 0.92, rad: 190,
+    targetAz: 0.6, targetPol: 0.92, targetRad: 190,
+    minRad: 8, maxRad: 320,
     focus: new THREE.Vector3(0,0,0),
     focusGoal: new THREE.Vector3(0,0,0)
   };
-  var GALAXY_DEFAULT = { az:0.6, pol:0.92, rad:92, focus:new THREE.Vector3(0,0,0) };
+  var GALAXY_DEFAULT = { az:0.6, pol:0.92, rad:190, focus:new THREE.Vector3(0,0,0) };
 
   function applyCameraImmediate(){
     var sp = new THREE.Vector3().setFromSphericalCoords(rig.rad, rig.pol, rig.az);
@@ -1093,7 +1095,7 @@
     var startAz = rig.targetAz, startPol = rig.targetPol, startRad = rig.targetRad;
     var startFocus = rig.focusGoal.clone();
     var endFocus = sys.position.clone();
-    var endRad = 6.5;
+    var endRad = 13;
 
     tween(approachMs, function(t){
       rig.targetAz = lerp(startAz, startAz + 0.35, t);
@@ -1147,10 +1149,10 @@
       galaxyGroup.visible = true;
       systemGroup.visible = false;
       state.mode = 'galaxy';
-      rig.minRad = 6; rig.maxRad = 150;
+      rig.minRad = 8; rig.maxRad = 320;
       if (sys){
         rig.focus.copy(sys.position); rig.focusGoal.copy(sys.position);
-        rig.az = rig.targetAz = 0.7; rig.pol = rig.targetPol = 1.05; rig.rad = rig.targetRad = 22;
+        rig.az = rig.targetAz = 0.7; rig.pol = rig.targetPol = 1.05; rig.rad = rig.targetRad = 45;
       } else {
         rig.focusGoal.copy(GALAXY_DEFAULT.focus);
         rig.targetAz = GALAXY_DEFAULT.az; rig.targetPol = GALAXY_DEFAULT.pol; rig.targetRad = GALAXY_DEFAULT.rad;
@@ -1218,7 +1220,7 @@
     var starLabelsEl = document.getElementById('starLabels');
     if (state.mode === 'galaxy'){
       // Fade labels in as the camera zooms closer, so the wide view stays uncluttered.
-      var labelFarRad = 65, labelNearRad = 28;
+      var labelFarRad = 130, labelNearRad = 55;
       var labelT = clamp((labelFarRad - rig.rad) / (labelFarRad - labelNearRad), 0, 1);
       starLabelsEl.style.opacity = labelT;
       starLabelsEl.style.display = labelT > 0.02 ? 'block' : 'none';
